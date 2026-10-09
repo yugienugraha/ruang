@@ -9,11 +9,14 @@ import {
   buildOfficeSnapshot,
   buildOfficeSummary,
   commandTimeoutMs,
+  createRosterMemory,
+  getOffice,
   parseChannelStatus,
   parseGatewayStatus,
   parseProfiles,
   parseSessions,
   parseSkills,
+  rosterMemory,
 } from './mission-control.js'
 
 describe('Hermes output parsers', () => {
@@ -279,30 +282,99 @@ describe('read timeout', () => {
   it('defaults to a budget a busy Hermes CLI read can meet', () => {
     expect(commandTimeoutMs({})).toBe(20_000)
     expect(commandTimeoutMs({ RUANG_COMMAND_TIMEOUT_MS: '' })).toBe(20_000)
+    expect(commandTimeoutMs({ RUANG_COMMAND_TIMEOUT_MS: '   ' })).toBe(20_000)
   })
 
-  it('accepts an override inside 1s-120s and ignores anything outside it', () => {
+  it('accepts a whole number of milliseconds inside 1s-120s', () => {
     expect(commandTimeoutMs({ RUANG_COMMAND_TIMEOUT_MS: '45000' })).toBe(45_000)
     expect(commandTimeoutMs({ MISSION_CONTROL_COMMAND_TIMEOUT_MS: '30000' })).toBe(30_000)
-    expect(commandTimeoutMs({ RUANG_COMMAND_TIMEOUT_MS: '0' })).toBe(20_000)
-    expect(commandTimeoutMs({ RUANG_COMMAND_TIMEOUT_MS: '999' })).toBe(20_000)
-    expect(commandTimeoutMs({ RUANG_COMMAND_TIMEOUT_MS: '999999' })).toBe(20_000)
-    expect(commandTimeoutMs({ RUANG_COMMAND_TIMEOUT_MS: 'soon' })).toBe(20_000)
+    expect(commandTimeoutMs({ RUANG_COMMAND_TIMEOUT_MS: '1000' })).toBe(1_000)
+    expect(commandTimeoutMs({ RUANG_COMMAND_TIMEOUT_MS: '120000' })).toBe(120_000)
+  })
+
+  it('skips an unusable value rather than letting it shadow a usable one', () => {
+    // A broken current name must not hide a working legacy value.
+    expect(commandTimeoutMs({ RUANG_COMMAND_TIMEOUT_MS: 'soon', MISSION_CONTROL_COMMAND_TIMEOUT_MS: '30000' })).toBe(30_000)
+    expect(commandTimeoutMs({ RUANG_COMMAND_TIMEOUT_MS: '0', MISSION_CONTROL_COMMAND_TIMEOUT_MS: '30000' })).toBe(30_000)
+    for (const value of ['0', '-5', '999', '120001', '45000.5', '0x10', 'Infinity', 'NaN']) {
+      expect(commandTimeoutMs({ RUANG_COMMAND_TIMEOUT_MS: value })).toBe(20_000)
+    }
   })
 })
 
-describe('Office roster when the profile list fails', () => {
-  const lastKnown = [{ name: 'default', model: 'm', gateway: 'Running' as const }, { name: 'coder', model: 'm', gateway: 'Running' as const }]
-  const unreadable = {
+describe('an empty crew is a readable answer', () => {
+  it('reads a recognised profile table with no rows as an empty crew', () => {
+    expect(parseProfiles(' Profile   Model   Gateway   Alias\n ────────  ───────  ────────\n')).toEqual([])
+    expect(parseProfiles('No profiles found.\n')).toEqual([])
+  })
+
+  it('still treats unparseable profile output as a failed read', () => {
+    expect(() => parseProfiles('hermes is starting up')).toThrow('Unrecognized profile output.')
+  })
+
+  it('reports an empty crew as available rather than as a failed read', async () => {
+    const snapshot = await collectSnapshot(async (_file, args) => (args.join(' ') === 'profile list' ? ' Profile   Model   Gateway\n ────────\n' : '1.18.35'))
+
+    expect(snapshot.profiles).toEqual({ availability: 'available', data: [] })
+  })
+})
+
+describe('roster memory', () => {
+  const read = {
+    profiles: { availability: 'available' as const, data: [{ name: 'default', model: 'm', gateway: 'Running' as const }] },
+    openCode: { availability: 'available' as const, data: '1.0.0' },
+    fetchedAt: '2026-09-27T12:00:00.000Z',
+  }
+  const failed = {
     profiles: { availability: 'unavailable' as const, data: [], error: { code: 'TIMEOUT' as const, message: 'Read timed out.' } },
     openCode: { availability: 'available' as const, data: '1.0.0' },
     fetchedAt: '2026-09-27T12:00:00.000Z',
   }
-  const board = { tasks: { availability: 'available' as const, data: [] }, fetchedAt: '2026-09-27T12:00:00.000Z' }
-  const activity = { sessions: { availability: 'available' as const, data: [] }, fetchedAt: '2026-09-27T12:00:00.000Z' }
+
+  it('keeps the last readable crew and leaves it alone when a later read fails', () => {
+    const memory = createRosterMemory()
+    memory.remember(read, 1_000)
+    expect(memory.current(1_000)).toEqual(read.profiles.data)
+    memory.remember(failed, 2_000)
+    expect(memory.current(2_000)).toEqual(read.profiles.data)
+  })
+
+  it('forgets a crew that has stopped being recent', () => {
+    const memory = createRosterMemory(60_000)
+    memory.remember(read, 1_000)
+    expect(memory.current(61_000)).toHaveLength(1)
+    expect(memory.current(61_001)).toEqual([])
+  })
+
+  it('clears when a read succeeds with no profiles, so a deleted crew stops being a station', () => {
+    const memory = createRosterMemory()
+    memory.remember(read, 1_000)
+    memory.remember({ ...read, profiles: { availability: 'available', data: [] } }, 2_000)
+    expect(memory.current(2_000)).toEqual([])
+  })
+
+  it('forgets everything on clear', () => {
+    const memory = createRosterMemory()
+    memory.remember(read, 1_000)
+    memory.clear()
+    expect(memory.current(1_000)).toEqual([])
+  })
+})
+
+describe('Office roster when the profile list fails', () => {
+  const at = '2026-09-27T12:00:00.000Z'
+  const lastKnown = [{ name: 'default', model: 'm', gateway: 'Running' as const }, { name: 'coder', model: 'm', gateway: 'Running' as const }]
+  const unreadable = {
+    profiles: { availability: 'unavailable' as const, data: [], error: { code: 'TIMEOUT' as const, message: 'Read timed out.' } },
+    openCode: { availability: 'available' as const, data: '1.0.0' },
+    fetchedAt: at,
+  }
+  const board = { tasks: { availability: 'available' as const, data: [] }, fetchedAt: at }
+  const activity = { sessions: { availability: 'available' as const, data: [] }, fetchedAt: at }
+  const agentActivity = { agents: [], fetchedAt: at }
 
   it('keeps the last readable crew as Unknown instead of dropping every Hermes station', () => {
-    const office = buildOfficeSnapshot(unreadable, board, activity, { now: '2026-09-27T12:00:00.000Z', lastKnownProfiles: lastKnown })
+    const office = buildOfficeSnapshot(unreadable, board, activity, { now: at, lastKnownProfiles: lastKnown })
 
     expect(office.stations.map((station) => station.name)).toEqual(['default', 'coder', 'opencode'])
     expect(office.stations.map((station) => station.state)).toEqual(['Unknown', 'Unknown', 'Unknown'])
@@ -313,7 +385,7 @@ describe('Office roster when the profile list fails', () => {
   })
 
   it('stays empty (OpenCode only) when no readable list was ever seen', () => {
-    const office = buildOfficeSnapshot(unreadable, board, activity, { now: '2026-09-27T12:00:00.000Z' })
+    const office = buildOfficeSnapshot(unreadable, board, activity, { now: at })
 
     expect(office.stations.map((station) => station.name)).toEqual(['opencode'])
     expect(office.stations[0].provenance).not.toContain('last readable list')
@@ -321,10 +393,22 @@ describe('Office roster when the profile list fails', () => {
 
   it('never lets the kept roster claim work: a stopped gateway is not resurrected', () => {
     const stopped = [{ name: 'coder', model: 'm', gateway: 'Stopped' as const }]
-    const office = buildOfficeSnapshot(unreadable, board, activity, { now: '2026-09-27T12:00:00.000Z', lastKnownProfiles: stopped })
+    const office = buildOfficeSnapshot(unreadable, board, activity, { now: at, lastKnownProfiles: stopped })
 
     expect(agentRoster(unreadable, stopped)).toContainEqual({ id: 'coder', role: 'Hermes profile', profile: 'coder', gateway: undefined, aliases: ['coder'] })
     expect(office.stations.map((station) => station.state)).toEqual(['Unknown', 'Unknown'])
+  })
+
+  it('serves the kept crew through the office endpoint, not only through the builder', async () => {
+    const now = Date.parse(at)
+    rosterMemory.remember({ ...unreadable, profiles: { availability: 'available', data: lastKnown } }, now)
+    const kept = await getOffice(now, { runtime: unreadable, board, activity, agentActivity })
+    expect(kept.stations.map((station) => station.name)).toEqual(['default', 'coder', 'opencode'])
+
+    // The memory is what keeps them: without it the endpoint falls back to the failed read.
+    rosterMemory.clear()
+    const forgotten = await getOffice(now, { runtime: unreadable, board, activity, agentActivity })
+    expect(forgotten.stations.map((station) => station.name)).toEqual(['opencode'])
   })
 })
 
