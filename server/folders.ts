@@ -260,9 +260,15 @@ export async function resolveAgentFolders(profiles: string[], env: NodeJS.Proces
   return folders
 }
 
-/** Real paths of every other available agent folder, hidden inside this agent's folder. */
+/** Real paths of every other agent folder that sits *inside* this agent's folder, hidden inside it. */
 export function excludedFor(folder: AgentFolder, folders: AgentFolder[]): string[] {
-  return folders.filter((other) => other.available && other.profile !== folder.profile).map((other) => other.directory)
+  // Only a folder below this one may be hidden here. On the stock layout `default` resolves to the
+  // Hermes root, which *contains* every other profile: counting those as exclusions rejects this
+  // agent's own folder too (the requested path sits inside them), and every non-default agent ends
+  // up unreadable — 404 on a folder the API just listed as available.
+  return folders
+    .filter((other) => other.available && other.profile !== folder.profile && insideAny(other.directory, [folder.directory]))
+    .map((other) => other.directory)
 }
 
 export function publicAgent({ directory: _directory, ...agent }: AgentFolder): FolderAgent {
