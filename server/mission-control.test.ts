@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  agentRoster,
   collectActivity,
   collectCalendar,
   collectKnowledge,
@@ -7,6 +8,7 @@ import {
   collectTaskBoard,
   buildOfficeSnapshot,
   buildOfficeSummary,
+  commandTimeoutMs,
   parseChannelStatus,
   parseGatewayStatus,
   parseProfiles,
@@ -272,3 +274,57 @@ describe('calendar across profiles', () => {
     expect(calls.flat()).not.toContain('--evil')
   })
 })
+
+describe('read timeout', () => {
+  it('defaults to a budget a busy Hermes CLI read can meet', () => {
+    expect(commandTimeoutMs({})).toBe(20_000)
+    expect(commandTimeoutMs({ RUANG_COMMAND_TIMEOUT_MS: '' })).toBe(20_000)
+  })
+
+  it('accepts an override inside 1s-120s and ignores anything outside it', () => {
+    expect(commandTimeoutMs({ RUANG_COMMAND_TIMEOUT_MS: '45000' })).toBe(45_000)
+    expect(commandTimeoutMs({ MISSION_CONTROL_COMMAND_TIMEOUT_MS: '30000' })).toBe(30_000)
+    expect(commandTimeoutMs({ RUANG_COMMAND_TIMEOUT_MS: '0' })).toBe(20_000)
+    expect(commandTimeoutMs({ RUANG_COMMAND_TIMEOUT_MS: '999' })).toBe(20_000)
+    expect(commandTimeoutMs({ RUANG_COMMAND_TIMEOUT_MS: '999999' })).toBe(20_000)
+    expect(commandTimeoutMs({ RUANG_COMMAND_TIMEOUT_MS: 'soon' })).toBe(20_000)
+  })
+})
+
+describe('Office roster when the profile list fails', () => {
+  const lastKnown = [{ name: 'default', model: 'm', gateway: 'Running' as const }, { name: 'coder', model: 'm', gateway: 'Running' as const }]
+  const unreadable = {
+    profiles: { availability: 'unavailable' as const, data: [], error: { code: 'TIMEOUT' as const, message: 'Read timed out.' } },
+    openCode: { availability: 'available' as const, data: '1.0.0' },
+    fetchedAt: '2026-09-27T12:00:00.000Z',
+  }
+  const board = { tasks: { availability: 'available' as const, data: [] }, fetchedAt: '2026-09-27T12:00:00.000Z' }
+  const activity = { sessions: { availability: 'available' as const, data: [] }, fetchedAt: '2026-09-27T12:00:00.000Z' }
+
+  it('keeps the last readable crew as Unknown instead of dropping every Hermes station', () => {
+    const office = buildOfficeSnapshot(unreadable, board, activity, { now: '2026-09-27T12:00:00.000Z', lastKnownProfiles: lastKnown })
+
+    expect(office.stations.map((station) => station.name)).toEqual(['default', 'coder', 'opencode'])
+    expect(office.stations.map((station) => station.state)).toEqual(['Unknown', 'Unknown', 'Unknown'])
+    expect(office.stations[0].provenance).toContain('Gateway Unknown')
+    expect(office.stations[0].provenance).toContain('station kept from the last readable list')
+    // The gateway states belonged to the failed read, so none is claimed and none is counted.
+    expect(office.summary).toMatchObject({ declared: 3, unknown: 3, gatewaysReachable: 0, gatewaysDeclared: 0 })
+  })
+
+  it('stays empty (OpenCode only) when no readable list was ever seen', () => {
+    const office = buildOfficeSnapshot(unreadable, board, activity, { now: '2026-09-27T12:00:00.000Z' })
+
+    expect(office.stations.map((station) => station.name)).toEqual(['opencode'])
+    expect(office.stations[0].provenance).not.toContain('last readable list')
+  })
+
+  it('never lets the kept roster claim work: a stopped gateway is not resurrected', () => {
+    const stopped = [{ name: 'coder', model: 'm', gateway: 'Stopped' as const }]
+    const office = buildOfficeSnapshot(unreadable, board, activity, { now: '2026-09-27T12:00:00.000Z', lastKnownProfiles: stopped })
+
+    expect(agentRoster(unreadable, stopped)).toContainEqual({ id: 'coder', role: 'Hermes profile', profile: 'coder', gateway: undefined, aliases: ['coder'] })
+    expect(office.stations.map((station) => station.state)).toEqual(['Unknown', 'Unknown'])
+  })
+})
+

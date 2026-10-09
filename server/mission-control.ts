@@ -4,7 +4,18 @@ import { promisify } from 'node:util'
 const execFile = promisify(execFileCallback)
 const CACHE_MS = 10_000
 const INSIGHTS_CACHE_MS = 60_000
-const COMMAND_TIMEOUT_MS = 8_000
+const DEFAULT_COMMAND_TIMEOUT_MS = 20_000
+/**
+ * Per-command read timeout. Every Hermes CLI read costs a second or more and they serialise under
+ * load, so the whole first read of a page can exceed a tighter budget on a busy machine (timed-out
+ * reads then show as Not Available / Unknown). `RUANG_COMMAND_TIMEOUT_MS` overrides the default;
+ * values outside 1s–120s are ignored rather than accepted as-is.
+ */
+export function commandTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number(env.RUANG_COMMAND_TIMEOUT_MS ?? env.MISSION_CONTROL_COMMAND_TIMEOUT_MS)
+  return Number.isFinite(raw) && raw >= 1_000 && raw <= 120_000 ? raw : DEFAULT_COMMAND_TIMEOUT_MS
+}
+const COMMAND_TIMEOUT_MS = commandTimeoutMs()
 const COMMAND_LOG_LIMIT = 100
 const LOG_TAIL_LINES = 200
 
@@ -63,7 +74,7 @@ export interface AgentActivitySnapshot { agents: AgentActivity[]; fetchedAt: str
 export interface OfficeSnapshot { stations: OfficeStation[]; summary: OfficeSummary; fetchedAt: string }
 export interface OfficeSummary { declared: number; active: number; idle: number; offline: number; unknown: number; gatewaysReachable: number; gatewaysDeclared: number }
 export interface ExplicitOfficeState { station: OfficeStation['name']; state: 'Working' | 'Reviewing' | 'Collaborating'; expiresAt: string }
-export interface OfficeBuildOptions { now?: string | number; explicitStates?: ExplicitOfficeState[]; agentActivity?: AgentActivitySnapshot }
+export interface OfficeBuildOptions { now?: string | number; explicitStates?: ExplicitOfficeState[]; agentActivity?: AgentActivitySnapshot; lastKnownProfiles?: readonly Profile[] }
 export interface UsageInsights {
   days: number
   sessions: number
@@ -818,12 +829,18 @@ export async function collectAgentActivity(profiles: readonly string[], run: Run
 // ---------------------------------------------------------------------------
 // Office
 
-/** One office station per agent: every Hermes profile, plus OpenCode when it is installed. */
 interface AgentSpec { id: string; role: string; profile?: string; gateway?: GatewayState; aliases: string[] }
 
-export function agentRoster(runtime: RuntimeSnapshot): AgentSpec[] {
-  const profiles = runtime.profiles.availability === 'available' ? runtime.profiles.data : []
-  const agents: AgentSpec[] = profiles.filter((profile) => PROFILE_NAME.test(profile.name)).map((profile) => ({ id: profile.name, role: 'Hermes profile', profile: profile.name, gateway: profile.gateway, aliases: [profile.name.toLowerCase()] }))
+/**
+ * One office station per agent: every Hermes profile, plus OpenCode when it is installed.
+ * When `hermes profile list` could not be read, `lastKnownProfiles` (the last readable list) keeps
+ * the crew on screen instead of silently emptying the office; those stations report no gateway,
+ * because their gateway state comes from the failed read.
+ */
+export function agentRoster(runtime: RuntimeSnapshot, lastKnownProfiles: readonly Profile[] = []): AgentSpec[] {
+  const readable = runtime.profiles.availability === 'available'
+  const profiles = readable ? runtime.profiles.data : lastKnownProfiles
+  const agents: AgentSpec[] = profiles.filter((profile) => PROFILE_NAME.test(profile.name)).map((profile) => ({ id: profile.name, role: 'Hermes profile', profile: profile.name, gateway: readable ? profile.gateway : undefined, aliases: [profile.name.toLowerCase()] }))
   if (runtime.openCode.availability === 'available' && !agents.some((agent) => agent.id === 'opencode')) agents.push({ id: 'opencode', role: 'OpenCode', aliases: ['opencode', 'open-code'] })
   return agents
 }
@@ -902,12 +919,19 @@ function liveState(agent: AgentSpec, snapshot: AgentActivitySnapshot | undefined
 export function buildOfficeSnapshot(runtime: RuntimeSnapshot, board: TaskBoardSnapshot, activity: ActivitySnapshot, options: OfficeBuildOptions = {}): OfficeSnapshot {
   const fetchedAt = new Date().toISOString()
   const now = typeof options.now === 'number' ? options.now : options.now ? Date.parse(options.now) : Date.now()
-  const freshRuntime = isFresh(runtime.fetchedAt, now)
+  // Managed idle and every placement decision need a readable runtime read: a runtime whose profile
+  // list failed is not fresh evidence, however recent its timestamp is.
+  const freshRuntime = runtime.profiles.availability === 'available' && isFresh(runtime.fetchedAt, now)
   const freshBoard = board.tasks.availability === 'available' && isFresh(board.fetchedAt, now)
   const freshActivity = activity.sessions.availability === 'available' && isFresh(activity.fetchedAt, now)
   const agentActivity = options.agentActivity && isFresh(options.agentActivity.fetchedAt, now) ? options.agentActivity : undefined
   const explicitStates = options.explicitStates ?? []
-  const stations = agentRoster(runtime).map((agent, index): OfficeStation => {
+  // `hermes profile list` answering with nothing (a timeout, typically under first-load load) would
+  // otherwise drop every Hermes station from the office without a word. Keep the last readable crew
+  // instead; the stations still report Unknown, so no work is invented.
+  const lastKnownProfiles = options.lastKnownProfiles ?? []
+  const rosterFallback = runtime.profiles.availability !== 'available' && lastKnownProfiles.length > 0
+  const stations = agentRoster(runtime, lastKnownProfiles).map((agent, index): OfficeStation => {
     const gateway = agent.gateway
     const task = freshBoard ? attributedTask(board.tasks.data, agent.aliases) : undefined
     const overlay = explicitState(agent, explicitStates, now)
@@ -930,7 +954,7 @@ export function buildOfficeSnapshot(runtime: RuntimeSnapshot, board: TaskBoardSn
     const recentActivity = live.probe
       ? live.probe.active ? `${live.probe.label ?? 'Active'}${live.probe.lastSeen ? ` (last log ${live.probe.lastSeen})` : ''}` : `No activity in the last ${ACTIVITY_WINDOW}`
       : activity.sessions.availability === 'unavailable' ? 'Not Available' : collaboration === 'Collaborating' ? 'Attributed active collaboration session' : 'No attributed recent activity'
-    const runtimeProvenance = agent.profile ? `Gateway ${gateway ?? 'Unknown'} (hermes profile list)` : 'OpenCode version availability is not a state signal'
+    const runtimeProvenance = agent.profile ? `Gateway ${gateway ?? 'Unknown'} (hermes profile list${rosterFallback ? ' did not answer; station kept from the last readable list' : ''})` : 'OpenCode version availability is not a state signal'
     const managedIdle = state === 'Idle' ? '; Ruang managed-idle placement policy (not agent-reported presence)' : ''
     const liveProvenance = options.agentActivity ? `; live activity (${agent.profile ? `hermes -p ${agent.profile} logs/sessions` : 'agent logs mentioning OpenCode'}, last ${ACTIVITY_WINDOW}): ${!agentActivity || !live.known ? 'unavailable' : live.state !== 'Unknown' ? live.probe?.kind ?? 'active' : 'none'}` : ''
     return {
@@ -993,7 +1017,16 @@ function cachedSource<T>(collect: () => Promise<T>, ttl = CACHE_MS) {
   return Object.assign(get, { clear: () => { entry = undefined } })
 }
 
-const runtimeSource = cachedSource(() => collectSnapshot())
+/**
+ * The last `hermes profile list` that answered, kept so a timed-out read shows the crew as Unknown
+ * instead of emptying the office. Only a readable, non-empty list is remembered.
+ */
+let lastKnownProfiles: Profile[] = []
+const runtimeSource = cachedSource(async () => {
+  const snapshot = await collectSnapshot()
+  if (snapshot.profiles.availability === 'available' && snapshot.profiles.data.length > 0) lastKnownProfiles = snapshot.profiles.data
+  return snapshot
+})
 const taskBoardSource = cachedSource(() => collectTaskBoard())
 const calendarSource = cachedSource(() => collectCalendar())
 const activitySource = cachedSource(() => collectActivity())
@@ -1031,11 +1064,11 @@ export async function getTaskDetail(id: string, now = Date.now(), board?: string
 
 export async function getOffice(now = Date.now()): Promise<OfficeSnapshot> {
   const [runtime, board, activity, agentActivity] = await Promise.all([getSnapshot(now), getTaskBoard(now), getActivity(now), agentActivitySource(now)])
-  return buildOfficeSnapshot(runtime, board, activity, { agentActivity })
+  return buildOfficeSnapshot(runtime, board, activity, { agentActivity, lastKnownProfiles })
 }
 
 export async function getDashboard(now = Date.now()): Promise<DashboardSnapshot> {
   const [runtime, board, calendar, activity, knowledge, channels, agentActivity] = await Promise.all([getSnapshot(now), getTaskBoard(now), getCalendar(now), getActivity(now), getKnowledge(now), getChannels(now), agentActivitySource(now)])
-  const office = buildOfficeSnapshot(runtime, board, activity, { agentActivity })
+  const office = buildOfficeSnapshot(runtime, board, activity, { agentActivity, lastKnownProfiles })
   return buildDashboard({ runtime, board, calendar, activity, knowledge, channels, office, commands: commandHealth() })
 }
