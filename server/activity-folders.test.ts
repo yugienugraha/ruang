@@ -135,6 +135,12 @@ describe('agent folders', () => {
     expect(listing.entries.map((entry) => entry.name)).toEqual(['profiles', 'SOUL.md'])
     await expect(listFolder(folders[0], 'profiles/coder', excludedFor(folders[0], folders))).rejects.toMatchObject({ status: 404 })
     await expect(readFolderFile(folders[0], 'profiles/coder/SOUL.md', excludedFor(folders[0], folders))).rejects.toMatchObject({ status: 404 })
+    // Hiding a profile inside the root must not cost the profile its own folder: `default` owns
+    // ~/.hermes, and coder's folder lives inside it, so an exclusion list built from every *other*
+    // agent would reject coder's own path as well.
+    const inner = await listFolder(folders[1], '', excludedFor(folders[1], folders))
+    expect(inner.entries.map((entry) => entry.name)).toEqual(['SOUL.md'])
+    expect(await readFolderFile(folders[1], 'SOUL.md', excludedFor(folders[1], folders))).toMatchObject({ kind: 'text', content: 'engineer' })
     rmSync(stock, { recursive: true, force: true })
   })
 
