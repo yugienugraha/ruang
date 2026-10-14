@@ -52,7 +52,7 @@ npm start          # open http://127.0.0.1:3001
 
 Checks: `npm run lint`, `npm test`, `npm run build`.
 
-**After pulling new code** run `npm install && npm run build` and restart `npm start` (a running `npm start` keeps serving the old API; `npm run dev` restarts the API by itself). The UI checks `/api/health` and shows a *Restart needed* banner when the server is older than the page. Set `RUANG_PORT` (or pass `--port`) to change the port. The server binds to `127.0.0.1` only. The older `MISSION_CONTROL_*` settings still work.
+**After pulling new code** run `npm install && npm run build` and restart `npm start` (a running `npm start` keeps serving the old API; `npm run dev` restarts the API by itself). The UI checks `/api/health` and shows a *Restart needed* banner when the server is older than the page. Set `RUANG_PORT` (or pass `--port`) to change the port, and `RUANG_COMMAND_TIMEOUT_MS` (milliseconds, 1000-120000, default 20000) to change how long one `hermes` read may take. The server binds to `127.0.0.1` only. The older `MISSION_CONTROL_*` settings still work.
 
 **Releasing:** bump the version and push the tag, for example `npm version 0.2.1 && git push origin main --follow-tags`. The *Release* workflow then lints, tests, builds and attaches `ruang.tgz` to a GitHub release, which the installer picks up. To also publish to npm, add an `NPM_TOKEN` repository secret.
 
@@ -160,7 +160,7 @@ The server uses only these fixed, read-only commands:
 How they run:
 - Commands run with `NO_COLOR=1` and a wide `COLUMNS` so the plain-text formats parse reliably.
 - The default gateway state is derived from `hermes profile list`; no separate default gateway command is run.
-- Each command is executed with `execFile` and an 8-second process timeout. Its endpoint result is cached for 10 seconds (insights: 60 seconds; logs: 5 seconds), and concurrent requests share one in-flight read.
+- Each command is executed with `execFile` and a per-command process timeout (20 seconds by default; `RUANG_COMMAND_TIMEOUT_MS` sets it in milliseconds, between 1 and 120 seconds, and the older `MISSION_CONTROL_COMMAND_TIMEOUT_MS` still works). Its endpoint result is cached for 10 seconds (insights: 60 seconds; logs: 5 seconds), and concurrent requests share one in-flight read.
 - Browser input never reaches a shell command.
 
 Only normalized data is exposed:

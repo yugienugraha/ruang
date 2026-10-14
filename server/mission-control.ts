@@ -4,7 +4,28 @@ import { promisify } from 'node:util'
 const execFile = promisify(execFileCallback)
 const CACHE_MS = 10_000
 const INSIGHTS_CACHE_MS = 60_000
-const COMMAND_TIMEOUT_MS = 8_000
+const DEFAULT_COMMAND_TIMEOUT_MS = 20_000
+const COMMAND_TIMEOUT_MIN_MS = 1_000
+const COMMAND_TIMEOUT_MAX_MS = 120_000
+/** `RUANG_COMMAND_TIMEOUT_MS` first, then the name it had before the rename. */
+const COMMAND_TIMEOUT_VARIABLES = ['RUANG_COMMAND_TIMEOUT_MS', 'MISSION_CONTROL_COMMAND_TIMEOUT_MS'] as const
+/**
+ * Per-command read timeout. Every Hermes CLI read costs a second or more and they serialise under
+ * load, so the whole first read of a page can exceed a tighter budget on a busy machine (timed-out
+ * reads then show as Not Available / Unknown). The first variable holding a whole number of
+ * milliseconds inside 1s-120s wins; anything else is skipped, so an unusable value in the current
+ * name does not shadow a usable one in the older name.
+ */
+export function commandTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  for (const name of COMMAND_TIMEOUT_VARIABLES) {
+    const raw = env[name]
+    if (raw === undefined || raw.trim() === '') continue
+    const value = Number(raw)
+    if (Number.isInteger(value) && value >= COMMAND_TIMEOUT_MIN_MS && value <= COMMAND_TIMEOUT_MAX_MS) return value
+  }
+  return DEFAULT_COMMAND_TIMEOUT_MS
+}
+const COMMAND_TIMEOUT_MS = commandTimeoutMs()
 const COMMAND_LOG_LIMIT = 100
 const LOG_TAIL_LINES = 200
 
@@ -63,7 +84,7 @@ export interface AgentActivitySnapshot { agents: AgentActivity[]; fetchedAt: str
 export interface OfficeSnapshot { stations: OfficeStation[]; summary: OfficeSummary; fetchedAt: string }
 export interface OfficeSummary { declared: number; active: number; idle: number; offline: number; unknown: number; gatewaysReachable: number; gatewaysDeclared: number }
 export interface ExplicitOfficeState { station: OfficeStation['name']; state: 'Working' | 'Reviewing' | 'Collaborating'; expiresAt: string }
-export interface OfficeBuildOptions { now?: string | number; explicitStates?: ExplicitOfficeState[]; agentActivity?: AgentActivitySnapshot }
+export interface OfficeBuildOptions { now?: string | number; explicitStates?: ExplicitOfficeState[]; agentActivity?: AgentActivitySnapshot; lastKnownProfiles?: readonly Profile[] }
 export interface UsageInsights {
   days: number
   sessions: number
@@ -168,9 +189,12 @@ function profileRows(output: string): ProfileRow[] {
 }
 
 export function parseProfiles(output: string): Profile[] {
-  const profiles = profileRows(output)
-  if (profiles.length === 0) throw new Error('Unrecognized profile output.')
-  return profiles
+  // A readable table with no rows is an *empty crew*, not unreadable output: `profileRows` already
+  // requires the table header, so reaching the end with no rows means Hermes answered with no
+  // profiles. Treating that as a failed read makes "no profiles exist" indistinguishable from a
+  // timeout, which the office would then paper over with a roster it remembered from earlier.
+  if (/^\s*No profiles\b/im.test(output)) return []
+  return profileRows(output)
 }
 
 export function parseGatewayStatus(output: string): GatewayState {
@@ -818,12 +842,18 @@ export async function collectAgentActivity(profiles: readonly string[], run: Run
 // ---------------------------------------------------------------------------
 // Office
 
-/** One office station per agent: every Hermes profile, plus OpenCode when it is installed. */
 interface AgentSpec { id: string; role: string; profile?: string; gateway?: GatewayState; aliases: string[] }
 
-export function agentRoster(runtime: RuntimeSnapshot): AgentSpec[] {
-  const profiles = runtime.profiles.availability === 'available' ? runtime.profiles.data : []
-  const agents: AgentSpec[] = profiles.filter((profile) => PROFILE_NAME.test(profile.name)).map((profile) => ({ id: profile.name, role: 'Hermes profile', profile: profile.name, gateway: profile.gateway, aliases: [profile.name.toLowerCase()] }))
+/**
+ * One office station per agent: every Hermes profile, plus OpenCode when it is installed.
+ * When `hermes profile list` could not be read, `lastKnownProfiles` (the last readable list) keeps
+ * the crew on screen instead of silently emptying the office; those stations report no gateway,
+ * because their gateway state comes from the failed read.
+ */
+export function agentRoster(runtime: RuntimeSnapshot, lastKnownProfiles: readonly Profile[] = []): AgentSpec[] {
+  const readable = runtime.profiles.availability === 'available'
+  const profiles = readable ? runtime.profiles.data : lastKnownProfiles
+  const agents: AgentSpec[] = profiles.filter((profile) => PROFILE_NAME.test(profile.name)).map((profile) => ({ id: profile.name, role: 'Hermes profile', profile: profile.name, gateway: readable ? profile.gateway : undefined, aliases: [profile.name.toLowerCase()] }))
   if (runtime.openCode.availability === 'available' && !agents.some((agent) => agent.id === 'opencode')) agents.push({ id: 'opencode', role: 'OpenCode', aliases: ['opencode', 'open-code'] })
   return agents
 }
@@ -902,12 +932,21 @@ function liveState(agent: AgentSpec, snapshot: AgentActivitySnapshot | undefined
 export function buildOfficeSnapshot(runtime: RuntimeSnapshot, board: TaskBoardSnapshot, activity: ActivitySnapshot, options: OfficeBuildOptions = {}): OfficeSnapshot {
   const fetchedAt = new Date().toISOString()
   const now = typeof options.now === 'number' ? options.now : options.now ? Date.parse(options.now) : Date.now()
-  const freshRuntime = isFresh(runtime.fetchedAt, now)
+  // Managed idle and every placement decision need a readable runtime read: a runtime whose profile
+  // list failed is not fresh evidence, however recent its timestamp is.
+  const freshRuntime = runtime.profiles.availability === 'available' && isFresh(runtime.fetchedAt, now)
   const freshBoard = board.tasks.availability === 'available' && isFresh(board.fetchedAt, now)
   const freshActivity = activity.sessions.availability === 'available' && isFresh(activity.fetchedAt, now)
   const agentActivity = options.agentActivity && isFresh(options.agentActivity.fetchedAt, now) ? options.agentActivity : undefined
   const explicitStates = options.explicitStates ?? []
-  const stations = agentRoster(runtime).map((agent, index): OfficeStation => {
+  // `hermes profile list` answering with nothing (a timeout, typically under first-load load) would
+  // otherwise drop every Hermes station from the office without a word. Keep the last readable crew
+  // instead. They claim no gateway state (that came from the failed read); their office state still
+  // follows the usual precedence, so a fresh Kanban task or explicit overlay can still explain their
+  // work and they read Unknown only when nothing does.
+  const lastKnownProfiles = options.lastKnownProfiles ?? []
+  const rosterFallback = runtime.profiles.availability !== 'available' && lastKnownProfiles.length > 0
+  const stations = agentRoster(runtime, lastKnownProfiles).map((agent, index): OfficeStation => {
     const gateway = agent.gateway
     const task = freshBoard ? attributedTask(board.tasks.data, agent.aliases) : undefined
     const overlay = explicitState(agent, explicitStates, now)
@@ -930,7 +969,7 @@ export function buildOfficeSnapshot(runtime: RuntimeSnapshot, board: TaskBoardSn
     const recentActivity = live.probe
       ? live.probe.active ? `${live.probe.label ?? 'Active'}${live.probe.lastSeen ? ` (last log ${live.probe.lastSeen})` : ''}` : `No activity in the last ${ACTIVITY_WINDOW}`
       : activity.sessions.availability === 'unavailable' ? 'Not Available' : collaboration === 'Collaborating' ? 'Attributed active collaboration session' : 'No attributed recent activity'
-    const runtimeProvenance = agent.profile ? `Gateway ${gateway ?? 'Unknown'} (hermes profile list)` : 'OpenCode version availability is not a state signal'
+    const runtimeProvenance = agent.profile ? `Gateway ${gateway ?? 'Unknown'} (hermes profile list${rosterFallback ? ' did not answer; station kept from the last readable list' : ''})` : 'OpenCode version availability is not a state signal'
     const managedIdle = state === 'Idle' ? '; Ruang managed-idle placement policy (not agent-reported presence)' : ''
     const liveProvenance = options.agentActivity ? `; live activity (${agent.profile ? `hermes -p ${agent.profile} logs/sessions` : 'agent logs mentioning OpenCode'}, last ${ACTIVITY_WINDOW}): ${!agentActivity || !live.known ? 'unavailable' : live.state !== 'Unknown' ? live.probe?.kind ?? 'active' : 'none'}` : ''
     return {
@@ -993,7 +1032,37 @@ function cachedSource<T>(collect: () => Promise<T>, ttl = CACHE_MS) {
   return Object.assign(get, { clear: () => { entry = undefined } })
 }
 
-const runtimeSource = cachedSource(() => collectSnapshot())
+/** How long a readable profile list may stand in for a failed read before it is forgotten. */
+export const ROSTER_FALLBACK_TTL_MS = 5 * 60_000
+
+/**
+ * The last readable `hermes profile list`, kept so a timed-out read shows the crew as Unknown
+ * instead of emptying the office. A readable list replaces it (an empty one clears it: the crew
+ * really is gone, and a remembered crew must never outlive its profiles), a failed read leaves it
+ * alone, and it expires, so a profile deleted long ago stops being a station.
+ */
+export function createRosterMemory(ttlMs = ROSTER_FALLBACK_TTL_MS) {
+  let profiles: Profile[] = []
+  let rememberedAt = 0
+  return {
+    remember(snapshot: RuntimeSnapshot, now = Date.now()): void {
+      if (snapshot.profiles.availability !== 'available') return
+      profiles = snapshot.profiles.data
+      rememberedAt = now
+    },
+    current(now = Date.now()): Profile[] {
+      return profiles.length > 0 && now - rememberedAt <= ttlMs ? profiles : []
+    },
+    clear(): void { profiles = []; rememberedAt = 0 },
+  }
+}
+export const rosterMemory = createRosterMemory()
+
+const runtimeSource = cachedSource(async () => {
+  const snapshot = await collectSnapshot()
+  rosterMemory.remember(snapshot)
+  return snapshot
+})
 const taskBoardSource = cachedSource(() => collectTaskBoard())
 const calendarSource = cachedSource(() => collectCalendar())
 const activitySource = cachedSource(() => collectActivity())
@@ -1012,7 +1081,7 @@ const agentActivitySource = cachedSource(async () => {
 }, 15_000)
 
 export function getSnapshot(now = Date.now()): Promise<RuntimeSnapshot> { return runtimeSource(now) }
-export function clearSnapshotCache(): void { runtimeSource.clear() }
+export function clearSnapshotCache(): void { runtimeSource.clear(); rosterMemory.clear() }
 export function getTaskBoard(now = Date.now()): Promise<TaskBoardSnapshot> { return taskBoardSource(now) }
 export function getCalendar(now = Date.now()): Promise<CalendarSnapshot> { return calendarSource(now) }
 export function getActivity(now = Date.now()): Promise<ActivitySnapshot> { return activitySource(now) }
@@ -1029,13 +1098,26 @@ export async function getTaskDetail(id: string, now = Date.now(), board?: string
   return collectTaskDetail(id, systemRun, board)
 }
 
-export async function getOffice(now = Date.now()): Promise<OfficeSnapshot> {
-  const [runtime, board, activity, agentActivity] = await Promise.all([getSnapshot(now), getTaskBoard(now), getActivity(now), agentActivitySource(now)])
-  return buildOfficeSnapshot(runtime, board, activity, { agentActivity })
+/**
+ * Sources the office is built from, injectable so a test can describe a failed read without running
+ * the Hermes CLI.
+ */
+export interface OfficeDeps { runtime?: RuntimeSnapshot; board?: TaskBoardSnapshot; activity?: ActivitySnapshot; agentActivity?: AgentActivitySnapshot }
+
+/** The office options shared by the Office page, the dashboard and their tests. */
+function officeOptions(agentActivity: AgentActivitySnapshot | undefined, now: number): OfficeBuildOptions {
+  return { agentActivity, lastKnownProfiles: rosterMemory.current(now) }
+}
+
+export async function getOffice(now = Date.now(), deps: OfficeDeps = {}): Promise<OfficeSnapshot> {
+  const [runtime, board, activity, agentActivity] = await Promise.all([
+    deps.runtime ?? getSnapshot(now), deps.board ?? getTaskBoard(now), deps.activity ?? getActivity(now), deps.agentActivity ?? agentActivitySource(now),
+  ])
+  return buildOfficeSnapshot(runtime, board, activity, officeOptions(agentActivity, now))
 }
 
 export async function getDashboard(now = Date.now()): Promise<DashboardSnapshot> {
   const [runtime, board, calendar, activity, knowledge, channels, agentActivity] = await Promise.all([getSnapshot(now), getTaskBoard(now), getCalendar(now), getActivity(now), getKnowledge(now), getChannels(now), agentActivitySource(now)])
-  const office = buildOfficeSnapshot(runtime, board, activity, { agentActivity })
+  const office = buildOfficeSnapshot(runtime, board, activity, officeOptions(agentActivity, now))
   return buildDashboard({ runtime, board, calendar, activity, knowledge, channels, office, commands: commandHealth() })
 }
