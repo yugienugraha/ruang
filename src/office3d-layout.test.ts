@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AISLE_Z, BUILDING, DESKS, ENTRANCE_X, GAME_DOOR, GAME_LANE_Z, GAME_ROOM, IDLE_ROUTE, IDLE_STOPS, IDLE_STOP_MS, LOUNGE_LANE_X, LOUNGE_SEATS, MEETING_DOOR_X, MEETING_ROOM_MIN_Z, PAN_BOUNDS, createLayout, idlePlan, meetingSeat, SIDE_LANE_X, SIDEWALK_Z, clampTarget, idleStop, placementFor, walkPath, walkPath3, FLOOR_HEIGHT, PARTITION_X, STAIRS, BALCONY, floorOf, type Vec3 } from './office3d-layout.ts'
+import { AISLE_Z, BUILDING, DESKS, ENTRANCE_X, GAME_DOOR, GAME_LANE_Z, GAME_ROOM, IDLE_ROUTE, IDLE_STOPS, IDLE_STOP_MS, LOUNGE_LANE_X, LOUNGE_SEATS, MEETING_DOOR_X, MEETING_ROOM_MIN_Z, PAN_BOUNDS, createLayout, idlePlan, meetingSeat, SIDE_LANE_X, SIDEWALK_Z, clampTarget, idleStop, placementFor, walkPath, walkPath3, FLOOR_HEIGHT, PARTITION_X, STAIRS, BALCONY, BATHROOM, BATHROOM_DOOR, LESEHAN_TABLE, floorOf, type Vec3 } from './office3d-layout.ts'
 import type { OfficeStation } from './types.ts'
 
 const station = (overrides: Partial<OfficeStation>): OfficeStation => ({
@@ -225,6 +225,54 @@ describe('lantai 2', () => {
       for (const [x, , z] of path) if (z < -0.3) expect(x).toBeGreaterThan(PARTITION_X)
       expect(path.at(-1)).toEqual(position)
     }
+  })
+
+  it('puts the gym on the free strip in front of the bedroom, clear of the aisle and the stairwell', () => {
+    const gym = IDLE_STOPS.find((stop) => stop.key === 'gym')!
+    expect(IDLE_ROUTE).toContain('gym')
+    for (const { position: [x, y, z] } of gym.spots) {
+      expect(y).toBe(FLOOR_HEIGHT)
+      expect(x).toBeGreaterThan(BUILDING.minX + 1)
+      expect(x).toBeLessThan(STAIRS.highX - 0.5)
+      // In front of the bedroom rug, past the upstairs aisle, inside the balcony door line.
+      expect(z).toBeGreaterThan(AISLE_Z + 0.5)
+      expect(z).toBeLessThan(BUILDING.maxZ - 0.5)
+    }
+    expect(new Set(gym.spots.map((spot) => spot.position.join(','))).size).toBe(gym.spots.length)
+    // Walking there stays on the upstairs aisle and never crosses into the bedroom.
+    const layout = createLayout(6)
+    for (const { position } of gym.spots) {
+      const path = walkPath3([layout.beds[0][0], FLOOR_HEIGHT, 0.4], position, layout)
+      for (const [, , z] of path) expect(z).toBeGreaterThan(-0.3)
+      expect(path.at(-1)).toEqual(position)
+    }
+  })
+
+  it('sends agents to the kamar mandi through its door, never through its walls', () => {
+    const toilet = IDLE_STOPS.find((stop) => stop.key === 'toilet')!
+    expect(IDLE_ROUTE).toContain('toilet')
+    const layout = createLayout(6)
+    for (const { position } of toilet.spots) {
+      const [x, y, z] = position
+      expect(y).toBe(FLOOR_HEIGHT)
+      expect(x).toBeGreaterThan(BATHROOM.minX)
+      expect(x).toBeLessThan(BATHROOM.maxX)
+      expect(z).toBeGreaterThan(BATHROOM.minZ)
+      expect(z).toBeLessThan(BATHROOM.maxZ)
+      const path = walkPath3([LESEHAN_TABLE[0], FLOOR_HEIGHT, LESEHAN_TABLE[2]], position, layout)
+      let previous = path[0]
+      for (const point of path) {
+        // Every crossing of the bathroom's front wall happens inside the door gap.
+        if ((previous[2] - BATHROOM.maxZ) * (point[2] - BATHROOM.maxZ) < 0) {
+          const crossX = previous[0] + ((BATHROOM.maxZ - previous[2]) / (point[2] - previous[2])) * (point[0] - previous[0])
+          expect(crossX).toBeGreaterThan(BATHROOM_DOOR.fromX)
+          expect(crossX).toBeLessThan(BATHROOM_DOOR.toX)
+        }
+        previous = point
+      }
+      expect(path.at(-1)).toEqual(position)
+    }
+    expect(new Set(toilet.spots.map((spot) => spot.position.join(','))).size).toBe(toilet.spots.length)
   })
 
   it('sends sleepers to bed first and keeps everyone else off their beds', () => {

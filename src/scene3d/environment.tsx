@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
-import { ARCADES, BALCONY, BALCONY_DOOR, BALCONY_TABLE, BATHROOM, BEANBAGS, CARROM, COFFEE_TABLE, ENTRANCE_X, FLAG, FLOOR_HEIGHT, type Floor as FloorNumber, GAME_DOOR, GAME_ROOM, GAME_TV, HAMMOCK, LESEHAN_TABLE, LOUNGE_PARTITION_END_Z, MEETING_DOOR_X, PARTITION_X, PING_PONG, READING_CORNER, SOFA, STAIRS, STALL_ROTATION, type OfficeLayout, TV, type Vec3 } from '../office3d-layout.ts'
-import { AcOutdoorUnit, AirConditioner, ArcadeCabinet, Armchair, BathroomFittings, Beanbag, Bed, Bookshelf, CarromTable, ClothesLine, CoffeeTable, FlagPole, FloorCushion, Fridge, GalonDispenser, Gerobak, Hammock, KopiSepeda, LongTable, LowTable, Nightstand, OfficeChair, OfficeLight, PantryCounter, PingPongTable, Plant, Railing, RattanChair, RBox, SideTable, Sofa, Staircase, StreetLamp, StringLights, Television, Tree, Vendor, WallClock, Wardrobe, WaterTank, Whiteboard } from './props.tsx'
+import { ARCADES, BALCONY, BALCONY_DOOR, BALCONY_TABLE, BATHROOM, BATHROOM_DOOR, BEANBAGS, CARROM, COFFEE_TABLE, ENTRANCE_X, FLAG, FLOOR_HEIGHT, type Floor as FloorNumber, GAME_DOOR, GAME_ROOM, GAME_TV, GYM, HAMMOCK, LESEHAN_TABLE, LOUNGE_PARTITION_END_Z, MEETING_DOOR_X, PARTITION_X, PING_PONG, READING_CORNER, SOFA, STAIRS, STALL_ROTATION, type OfficeLayout, TV, type Vec3 } from '../office3d-layout.ts'
+import { AcOutdoorUnit, AirConditioner, ArcadeCabinet, Armchair, BathroomFittings, Beanbag, Bed, Bookshelf, CarromTable, ClothesLine, CoffeeTable, DumbbellRack, ExerciseBike, FlagPole, FloorCushion, Fridge, GalonDispenser, Gerobak, GymMirror, Hammock, KopiSepeda, LongTable, LowTable, Nightstand, OfficeChair, OfficeLight, PantryCounter, PingPongTable, Plant, PunchingBag, Railing, RattanChair, RBox, SideTable, Sofa, Staircase, StreetLamp, StringLights, Television, Treadmill, Tree, Vendor, WallClock, Wardrobe, WaterTank, WeightBench, Whiteboard, YogaMat } from './props.tsx'
 import { asphalt, carpet, grass, pavingStones, tileFloor, woodFloor } from './textures.ts'
 
 // The building (floors, walls, windows, furniture) and its surroundings (yard, sidewalk,
@@ -212,6 +212,7 @@ function UpperFloor({ night, layout }: { night: boolean; layout: OfficeLayout })
   const bedroomRug = useMemo(() => carpet('#6d5a8c', [3, 3]), [])
   const lesehanRug = useMemo(() => carpet('#8c3b3b', [2, 2]), [])
   const readingRug = useMemo(() => carpet('#2f5d50', [2, 2]), [])
+  const gymMat = useMemo(() => carpet('#3f454c', [3, 2]), [])
   const tiles = useMemo(() => tileFloor([2, 2]), [])
   const balconyTiles = useMemo(() => tileFloor([6, 1]), [])
   // The slab, leaving the stairwell open: [minX, maxX, minZ, maxZ] pieces.
@@ -265,10 +266,20 @@ function UpperFloor({ night, layout }: { night: boolean; layout: OfficeLayout })
       <SideTable position={[READING_CORNER.sideTable[0], 0, READING_CORNER.sideTable[2]]}/>
       <Plant position={[0.9, 0, -1.2]} size={0.9}/>
       <Plant position={[7.1, 0, 1.4]}/>
+      {/* Gym: treadmill, exercise bike, bench press, dumbbell rack, samsak and a yoga mat */}
+      <Floor position={[GYM.mat.x, 0.012, GYM.mat.z]} size={[GYM.mat.width, GYM.mat.depth]} map={gymMat} roughness={0.95}/>
+      <Treadmill position={GYM.treadmill}/>
+      <ExerciseBike position={GYM.bike}/>
+      <WeightBench position={GYM.bench}/>
+      <DumbbellRack position={GYM.rack} rotation={Math.PI}/>
+      <PunchingBag position={GYM.bag}/>
+      <YogaMat position={GYM.yogaMat}/>
+      <GymMirror position={[minX + 0.14, 0, GYM.mirrorZ]} width={1.6}/>
+      <OfficeLight position={[GYM.mat.x, 2.4, GYM.mat.z]} night={night}/>
       {/* Bathroom: kamar mandi with a bak mandi */}
       <Wall from={[BATHROOM.minX, minZ]} to={[BATHROOM.minX, BATHROOM.maxZ]} height={1.9}/>
-      <Wall from={[BATHROOM.minX, BATHROOM.maxZ]} to={[8, BATHROOM.maxZ]} height={1}/>
-      <Wall from={[8.9, BATHROOM.maxZ]} to={[maxX, BATHROOM.maxZ]} height={1}/>
+      <Wall from={[BATHROOM.minX, BATHROOM.maxZ]} to={[BATHROOM_DOOR.fromX, BATHROOM.maxZ]} height={1}/>
+      <Wall from={[BATHROOM_DOOR.toX, BATHROOM.maxZ]} to={[maxX, BATHROOM.maxZ]} height={1}/>
       <BathroomFittings position={[8.2, 0, -2.6]}/>
       {/* Railing around the stairwell */}
       <Railing position={[(hole.minX + hole.maxX) / 2, 0, hole.minZ]} length={hole.maxX - hole.minX}/>

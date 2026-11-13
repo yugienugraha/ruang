@@ -89,6 +89,24 @@ export const READING_CORNER = {
   browse: { x: 1.4, z: -4.25, facing: Math.PI },
 }
 export const BATHROOM = { minX: 7.6, maxX: 9.5, minZ: -5.2, maxZ: -2.6 }
+/** The kamar mandi's door gap in its front wall; agents must enter between these x. */
+export const BATHROOM_DOOR = { fromX: 8, toX: 8.9 }
+/**
+ * Gym upstairs, on the empty strip between the lemari on the left wall and the stairwell, in
+ * front of the bedroom (z stays clear of the upstairs aisle at AISLE_Z). Coordinates are fixed:
+ * the building only grows further to the left, so this strip exists for any crew size.
+ */
+export const GYM = {
+  mat: { x: -5.3, z: 2.3, width: 6.4, depth: 2.6 },
+  treadmill: [-8, 0, 2.3] as Vec3,
+  bike: [-6.8, 0, 2.3] as Vec3,
+  bench: [-5.2, 0, 2.5] as Vec3,
+  rack: [-3.7, 0, 3.35] as Vec3,
+  bag: [-2.6, 0, 1.6] as Vec3,
+  yogaMat: [-6.9, 0, 2.95] as Vec3,
+  /** Mirror panel on the left wall, beside the gym (x comes from the building's left wall). */
+  mirrorZ: 1.1,
+}
 /** Beds stand above the desk columns, in two rows with their heads to the back wall. */
 const BED_ROWS_Z = [-4.1, -1.6]
 
@@ -157,6 +175,20 @@ function idleStops(building: OfficeLayout['building'], baksoCart: Vec3, kopiBike
     { key: 'baca', label: 'Reading in the pojok baca', spots: [
       ...READING_CORNER.chairs.map((chair) => upstairs(chair.x, chair.z, chair.facing, { seated: true })),
       upstairs(READING_CORNER.browse.x, READING_CORNER.browse.z, READING_CORNER.browse.facing, { label: 'Picking a book from the shelf' }),
+    ] },
+    { key: 'gym', label: 'Working out in the gym', spots: [
+      upstairs(GYM.treadmill[0], GYM.treadmill[2] - 0.2, Math.PI, { label: 'Running on the treadmill' }),
+      upstairs(GYM.bike[0], GYM.bike[2] + 0.3, Math.PI, { seated: true, label: 'On the exercise bike' }),
+      upstairs(GYM.bench[0], GYM.bench[2], 0, { pose: 'lie', height: 0.48, label: 'Bench press' }),
+      upstairs(GYM.rack[0], GYM.rack[2] - 0.6, 0, { label: 'Lifting dumbbells' }),
+      upstairs(GYM.bag[0], GYM.bag[2] + 0.6, Math.PI, { label: 'Hitting the punching bag' }),
+      upstairs(GYM.yogaMat[0], GYM.yogaMat[2], Math.PI, { pose: 'floor', label: 'Stretching on the mat' }),
+    ] },
+    // In the kamar mandi upstairs; every spot is entered straight through the door gap.
+    { key: 'toilet', label: 'In the kamar mandi', spots: [
+      upstairs(8.6, -3.9, Math.PI * 0.75, { label: 'Mandi with the gayung' }),
+      upstairs(8.35, -4.4, -Math.PI / 2, { label: 'Using the toilet' }),
+      upstairs(8.5, -3.1, Math.PI, { label: 'Washing up' }),
     ] },
     { key: 'lesehan', label: 'Lesehan upstairs', spots: [[-1, 0, Math.PI / 2], [1, 0, -Math.PI / 2], [0, -0.85, 0], [0, 0.85, Math.PI]].map(([dx, dz, facing]) => upstairs(tableX + dx, tableZ + dz, facing, { pose: 'floor' })) },
     { key: 'lounge', label: 'Relaxing in the lounge', spots: LOUNGE_SEATS.map(([x, , z], index) => spot(x, z, LOUNGE_FACING[index], true)) },
@@ -348,7 +380,7 @@ function simplify(from: [number, number], route: [number, number][], to: [number
 
 /** How long an idle agent stays at one stop (walking included). */
 export const IDLE_STOP_MS = 32_000
-export const IDLE_ROUTE = ['lounge', 'galon', 'baca', 'balkon', 'game', 'bakso', 'tidur', 'jalan', 'arcade', 'lesehan', 'kopi', 'baca', 'dapur', 'balkon', 'game', 'tidur']
+export const IDLE_ROUTE = ['lounge', 'galon', 'baca', 'balkon', 'gym', 'game', 'bakso', 'toilet', 'tidur', 'jalan', 'arcade', 'lesehan', 'gym', 'kopi', 'baca', 'toilet', 'dapur', 'balkon', 'game', 'tidur']
 
 export interface IdleAssignment { stop: IdleStop; placement: Placement }
 
