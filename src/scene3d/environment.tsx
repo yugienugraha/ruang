@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { ARCADES, BALCONY, BALCONY_DOOR, BALCONY_TABLE, BATHROOM, BEANBAGS, CARROM, COFFEE_TABLE, ENTRANCE_X, FLAG, FLOOR_HEIGHT, type Floor as FloorNumber, GAME_DOOR, GAME_ROOM, GAME_TV, HAMMOCK, LESEHAN_TABLE, LOUNGE_PARTITION_END_Z, MEETING_DOOR_X, PARTITION_X, PING_PONG, SOFA, STAIRS, STALL_ROTATION, type OfficeLayout, TV, type Vec3 } from '../office3d-layout.ts'
+import { ARCADES, BALCONY, BALCONY_DOOR, BALCONY_TABLE, BATHROOM, BEANBAGS, CARROM, COFFEE_TABLE, ENTRANCE_X, FLAG, FLOOR_HEIGHT, type Floor as FloorNumber, GAME_DOOR, GAME_ROOM, GAME_TV, HAMMOCK, LESEHAN_TABLE, LOUNGE_PARTITION_END_Z, MEETING_DOOR_X, PARTITION_X, PING_PONG, READING_CORNER, SOFA, STAIRS, STALL_ROTATION, type OfficeLayout, TV, type Vec3 } from '../office3d-layout.ts'
 import { AcOutdoorUnit, AirConditioner, ArcadeCabinet, Armchair, BathroomFittings, Beanbag, Bed, Bookshelf, CarromTable, ClothesLine, CoffeeTable, FlagPole, FloorCushion, Fridge, GalonDispenser, Gerobak, Hammock, KopiSepeda, LongTable, LowTable, Nightstand, OfficeChair, OfficeLight, PantryCounter, PingPongTable, Plant, Railing, RattanChair, RBox, SideTable, Sofa, Staircase, StreetLamp, StringLights, Television, Tree, Vendor, WallClock, Wardrobe, WaterTank, Whiteboard } from './props.tsx'
 import { asphalt, carpet, grass, pavingStones, tileFloor, woodFloor } from './textures.ts'
 
@@ -211,6 +211,7 @@ function UpperFloor({ night, layout }: { night: boolean; layout: OfficeLayout })
   const wood = useMemo(() => woodFloor([4, 4]), [])
   const bedroomRug = useMemo(() => carpet('#6d5a8c', [3, 3]), [])
   const lesehanRug = useMemo(() => carpet('#8c3b3b', [2, 2]), [])
+  const readingRug = useMemo(() => carpet('#2f5d50', [2, 2]), [])
   const tiles = useMemo(() => tileFloor([2, 2]), [])
   const balconyTiles = useMemo(() => tileFloor([6, 1]), [])
   // The slab, leaving the stairwell open: [minX, maxX, minZ, maxZ] pieces.
@@ -256,7 +257,13 @@ function UpperFloor({ night, layout }: { night: boolean; layout: OfficeLayout })
       <LowTable position={[LESEHAN_TABLE[0], 0, LESEHAN_TABLE[2]]}/>
       {[[-1, 0, '#e9c46a'], [1, 0, '#2a9d8f'], [0, -0.85, '#e76f51'], [0, 0.85, '#3d7fd6']].map(([dx, dz, color]) => <FloorCushion key={color as string} position={[LESEHAN_TABLE[0] + (dx as number), 0, LESEHAN_TABLE[2] + (dz as number)]} color={color as string}/>)}
       <Bookshelf position={[6.5, 0, minZ + 0.3]}/>
-      <Plant position={[1.1, 0, minZ + 0.5]} size={0.9}/>
+      {/* Pojok baca: shelf on the back wall, two armchairs and a side table on a carpet */}
+      <Floor position={[READING_CORNER.rug.x, 0.012, READING_CORNER.rug.z]} size={[READING_CORNER.rug.width, READING_CORNER.rug.depth]} map={readingRug}/>
+      <Bookshelf position={[READING_CORNER.shelf[0], 0, READING_CORNER.shelf[2]]}/>
+      <Armchair position={[READING_CORNER.chairs[0].x, 0, READING_CORNER.chairs[0].z]} rotation={READING_CORNER.chairs[0].facing} color="#2a9d8f"/>
+      <Armchair position={[READING_CORNER.chairs[1].x, 0, READING_CORNER.chairs[1].z]} rotation={READING_CORNER.chairs[1].facing} color="#b5651d"/>
+      <SideTable position={[READING_CORNER.sideTable[0], 0, READING_CORNER.sideTable[2]]}/>
+      <Plant position={[0.9, 0, -1.2]} size={0.9}/>
       <Plant position={[7.1, 0, 1.4]}/>
       {/* Bathroom: kamar mandi with a bak mandi */}
       <Wall from={[BATHROOM.minX, minZ]} to={[BATHROOM.minX, BATHROOM.maxZ]} height={1.9}/>

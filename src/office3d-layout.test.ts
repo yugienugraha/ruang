@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AISLE_Z, BUILDING, DESKS, ENTRANCE_X, GAME_DOOR, GAME_LANE_Z, GAME_ROOM, IDLE_ROUTE, IDLE_STOPS, IDLE_STOP_MS, LOUNGE_LANE_X, LOUNGE_SEATS, MEETING_DOOR_X, MEETING_ROOM_MIN_Z, PAN_BOUNDS, createLayout, idlePlan, meetingSeat, SIDE_LANE_X, SIDEWALK_Z, clampTarget, idleStop, placementFor, walkPath, walkPath3, FLOOR_HEIGHT, STAIRS, BALCONY, floorOf, type Vec3 } from './office3d-layout.ts'
+import { AISLE_Z, BUILDING, DESKS, ENTRANCE_X, GAME_DOOR, GAME_LANE_Z, GAME_ROOM, IDLE_ROUTE, IDLE_STOPS, IDLE_STOP_MS, LOUNGE_LANE_X, LOUNGE_SEATS, MEETING_DOOR_X, MEETING_ROOM_MIN_Z, PAN_BOUNDS, createLayout, idlePlan, meetingSeat, SIDE_LANE_X, SIDEWALK_Z, clampTarget, idleStop, placementFor, walkPath, walkPath3, FLOOR_HEIGHT, PARTITION_X, STAIRS, BALCONY, floorOf, type Vec3 } from './office3d-layout.ts'
 import type { OfficeStation } from './types.ts'
 
 const station = (overrides: Partial<OfficeStation>): OfficeStation => ({
@@ -201,6 +201,30 @@ describe('lantai 2', () => {
     const backBed = layout.beds[0]
     const toBed = walkPath3([backBed[0], FLOOR_HEIGHT, 0.4], [backBed[0], FLOOR_HEIGHT, backBed[2] + 0.95], layout)
     for (const [x, , z] of toBed.slice(0, -1)) if (z < -0.6) expect(Math.abs(x - backBed[0])).toBeGreaterThan(0.6)
+  })
+
+  it('seats readers in the pojok baca, clear of the bedroom and the lesehan rug', () => {
+    const baca = IDLE_STOPS.find((stop) => stop.key === 'baca')!
+    expect(IDLE_ROUTE).toContain('baca')
+    expect(baca.spots.filter((spot) => spot.seated)).toHaveLength(2)
+    for (const { position: [x, y, z] } of baca.spots) {
+      expect(y).toBe(FLOOR_HEIGHT)
+      // Between the bedroom partition and the lesehan rug, inside the back wall.
+      expect(x).toBeGreaterThan(PARTITION_X)
+      expect(x).toBeLessThan(2.6)
+      expect(z).toBeGreaterThan(BUILDING.minZ)
+      expect(z).toBeLessThan(-1.6)
+    }
+    expect(new Set(baca.spots.map((spot) => spot.position.join(','))).size).toBe(baca.spots.length)
+  })
+
+  it('walks to the pojok baca along the upstairs aisle, never through the bedroom partition', () => {
+    const layout = createLayout(6)
+    for (const { position } of IDLE_STOPS.find((stop) => stop.key === 'baca')!.spots) {
+      const path = walkPath3([layout.beds[0][0], FLOOR_HEIGHT, 0.4], position, layout)
+      for (const [x, , z] of path) if (z < -0.3) expect(x).toBeGreaterThan(PARTITION_X)
+      expect(path.at(-1)).toEqual(position)
+    }
   })
 
   it('sends sleepers to bed first and keeps everyone else off their beds', () => {

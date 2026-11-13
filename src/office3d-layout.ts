@@ -76,6 +76,18 @@ export const BALCONY_TABLE: Vec3 = [0.6, FLOOR_HEIGHT, 5.5]
 export const HAMMOCK: Vec3 = [4.2, FLOOR_HEIGHT, 5.95]
 /** Lesehan corner upstairs: a low table on a carpet with floor cushions around it. */
 export const LESEHAN_TABLE: Vec3 = [4.3, FLOOR_HEIGHT, -3]
+/**
+ * Pojok baca (reading corner) upstairs: a bookshelf against the back wall in the strip between the
+ * bedroom partition and the lesehan rug, with two armchairs and a side table on a small carpet.
+ */
+export const READING_CORNER = {
+  shelf: [1.4, 0, -4.9] as Vec3,
+  rug: { x: 1.55, z: -3.35, width: 2.4, depth: 2.3 },
+  sideTable: [1.55, 0, -3.35] as Vec3,
+  chairs: [{ x: 0.95, z: -3.35, facing: Math.PI / 2 }, { x: 2.15, z: -3.35, facing: -Math.PI / 2 }],
+  /** Standing at the shelf, far enough in front of it to leave its doors clear. */
+  browse: { x: 1.4, z: -4.25, facing: Math.PI },
+}
 export const BATHROOM = { minX: 7.6, maxX: 9.5, minZ: -5.2, maxZ: -2.6 }
 /** Beds stand above the desk columns, in two rows with their heads to the back wall. */
 const BED_ROWS_Z = [-4.1, -1.6]
@@ -141,6 +153,10 @@ function idleStops(building: OfficeLayout['building'], baksoCart: Vec3, kopiBike
       upstairs(BALCONY_TABLE[0] + 0.85, BALCONY_TABLE[2], -Math.PI / 2, { seated: true }),
       upstairs(HAMMOCK[0] + 0.9, HAMMOCK[2], -Math.PI / 2, { pose: 'lie', height: 0.62, label: 'Napping in the hammock' }),
       upstairs(7.9, BALCONY.maxZ - 0.45, 0, { label: 'Enjoying the view from the balcony' }),
+    ] },
+    { key: 'baca', label: 'Reading in the pojok baca', spots: [
+      ...READING_CORNER.chairs.map((chair) => upstairs(chair.x, chair.z, chair.facing, { seated: true })),
+      upstairs(READING_CORNER.browse.x, READING_CORNER.browse.z, READING_CORNER.browse.facing, { label: 'Picking a book from the shelf' }),
     ] },
     { key: 'lesehan', label: 'Lesehan upstairs', spots: [[-1, 0, Math.PI / 2], [1, 0, -Math.PI / 2], [0, -0.85, 0], [0, 0.85, Math.PI]].map(([dx, dz, facing]) => upstairs(tableX + dx, tableZ + dz, facing, { pose: 'floor' })) },
     { key: 'lounge', label: 'Relaxing in the lounge', spots: LOUNGE_SEATS.map(([x, , z], index) => spot(x, z, LOUNGE_FACING[index], true)) },
@@ -332,7 +348,7 @@ function simplify(from: [number, number], route: [number, number][], to: [number
 
 /** How long an idle agent stays at one stop (walking included). */
 export const IDLE_STOP_MS = 32_000
-export const IDLE_ROUTE = ['lounge', 'galon', 'balkon', 'game', 'bakso', 'tidur', 'jalan', 'arcade', 'lesehan', 'kopi', 'dapur', 'balkon', 'game', 'tidur']
+export const IDLE_ROUTE = ['lounge', 'galon', 'baca', 'balkon', 'game', 'bakso', 'tidur', 'jalan', 'arcade', 'lesehan', 'kopi', 'baca', 'dapur', 'balkon', 'game', 'tidur']
 
 export interface IdleAssignment { stop: IdleStop; placement: Placement }
 
