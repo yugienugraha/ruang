@@ -622,3 +622,89 @@ export function BathroomFittings({ position }: { position: Vec3 }) {
     <RBox position={[-0.3, 0.6, -2.05]} size={[0.42, 0.45, 0.16]} radius={0.04} color="#f6f7f5" roughness={0.25}/>
   </Group>
 }
+
+// ---------------------------------------------------------------------------
+// Gym (lantai 2)
+
+/** Treadmill: belt along z, console at the -z end. */
+export function Treadmill({ position, rotation = 0 }: { position: Vec3; rotation?: number }) {
+  return <Group position={position} rotation={rotation}>
+    <RBox position={[0, 0.16, 0.1]} size={[0.78, 0.14, 1.7]} radius={0.04} color="#2f343a" roughness={0.6}/>
+    <RBox position={[0, 0.245, 0.1]} size={[0.52, 0.04, 1.56]} radius={0.01} color="#1a1d21" roughness={0.9}/>
+    {[-0.34, 0.34].map((x) => <RBox key={x} position={[x, 0.32, -0.45]} rotation={[0.25, 0, 0]} size={[0.07, 0.95, 0.07]} radius={0.02} color="#9aa2a6" metalness={0.6}/>)}
+    <RBox position={[0, 0.82, -0.62]} size={[0.78, 0.1, 0.1]} radius={0.03} color="#9aa2a6" metalness={0.6}/>
+    <RBox position={[0, 1.0, -0.68]} rotation={[0.35, 0, 0]} size={[0.6, 0.36, 0.07]} radius={0.03} color="#3a3f44"/>
+    <RBox position={[0, 1.03, -0.63]} rotation={[0.35, 0, 0]} size={[0.44, 0.22, 0.01]} radius={0.004} color="#5fd0e0" emissive="#3fb6c8" emissiveIntensity={0.5} shadow={false}/>
+  </Group>
+}
+
+/** Sepeda statis: an exercise bike with the saddle towards +z and the handlebar towards -z. */
+export function ExerciseBike({ position, rotation = 0 }: { position: Vec3; rotation?: number }) {
+  return <Group position={position} rotation={rotation}>
+    <RBox position={[0, 0.08, 0.35]} size={[0.5, 0.12, 0.3]} radius={0.04} color="#3a3f44" metalness={0.4}/>
+    <RBox position={[0, 0.08, -0.35]} size={[0.5, 0.12, 0.3]} radius={0.04} color="#3a3f44" metalness={0.4}/>
+    <RBox position={[0, 0.42, 0]} rotation={[0.3, 0, 0]} size={[0.1, 0.78, 0.1]} radius={0.03} color="#c0392b" roughness={0.4}/>
+    <RBox position={[0, 0.62, 0.3]} rotation={[-0.35, 0, 0]} size={[0.1, 0.7, 0.1]} radius={0.03} color="#c0392b" roughness={0.4}/>
+    <RBox position={[0, 0.74, 0.42]} size={[0.26, 0.09, 0.42]} radius={0.04} color="#1a1d21" roughness={0.9}/>
+    <RBox position={[0, 0.9, -0.3]} rotation={[0.35, 0, 0]} size={[0.08, 0.55, 0.08]} radius={0.03} color="#9aa2a6" metalness={0.6}/>
+    <RBox position={[0, 1.08, -0.38]} size={[0.5, 0.07, 0.09]} radius={0.03} color="#1a1d21"/>
+    <Cyl position={[0, 0.36, -0.12]} rotation={[0, 0, Math.PI / 2]} radius={0.26} height={0.08} color="#9aa2a6" metalness={0.6} roughness={0.35}/>
+    {[-0.17, 0.17].map((x) => <RBox key={x} position={[x, 0.22, -0.12]} size={[0.14, 0.04, 0.2]} radius={0.01} color="#1a1d21"/>)}
+  </Group>
+}
+
+/** Flat bench with a barbell on its rack, the bench lying along z. */
+export function WeightBench({ position, rotation = 0 }: { position: Vec3; rotation?: number }) {
+  return <Group position={position} rotation={rotation}>
+    <RBox position={[0, 0.44, 0]} size={[0.42, 0.12, 1.5]} radius={0.05} color="#8c2f2f" roughness={0.8}/>
+    {[-0.55, 0.55].map((z) => <RBox key={z} position={[0, 0.19, z]} size={[0.3, 0.38, 0.1]} radius={0.02} color="#3a3f44" metalness={0.5}/>)}
+    {[-0.26, 0.26].map((x) => <RBox key={x} position={[x, 0.55, -0.72]} size={[0.07, 1.1, 0.07]} radius={0.02} color="#3a3f44" metalness={0.5}/>)}
+    <Cyl position={[0, 1.12, -0.72]} rotation={[0, 0, Math.PI / 2]} radius={0.035} height={1.5} color="#9aa2a6" metalness={0.7} roughness={0.3}/>
+    {[-0.58, 0.58].map((x) => <Cyl key={x} position={[x, 1.12, -0.72]} rotation={[0, 0, Math.PI / 2]} radius={0.22} height={0.08} color="#1a1d21" roughness={0.8}/>)}
+  </Group>
+}
+
+/** Two-tier rack of dumbbells, open side towards -z. */
+export function DumbbellRack({ position, rotation = 0 }: { position: Vec3; rotation?: number }) {
+  const colors = ['#2a9d8f', '#e9c46a', '#e76f51', '#3d7fd6']
+  return <Group position={position} rotation={rotation}>
+    <RBox position={[0, 0.3, 0]} size={[1.5, 0.08, 0.5]} radius={0.02} color="#3a3f44" metalness={0.5}/>
+    <RBox position={[0, 0.62, 0.08]} size={[1.5, 0.08, 0.36]} radius={0.02} color="#3a3f44" metalness={0.5}/>
+    {[-0.7, 0.7].map((x) => <RBox key={x} position={[x, 0.33, 0.12]} size={[0.07, 0.66, 0.07]} radius={0.02} color="#2f343a" metalness={0.5}/>)}
+    {colors.map((color, index) => <Group key={color} position={[-0.52 + index * 0.35, 0, 0]}>
+      <Cyl position={[0, 0.42, -0.06]} rotation={[Math.PI / 2, 0, Math.PI / 2]} radius={0.025} height={0.3} color="#9aa2a6" metalness={0.7}/>
+      {[-0.12, 0.12].map((z) => <Cyl key={z} position={[0, 0.42, -0.06 + z]} rotation={[0, 0, Math.PI / 2]} radius={0.1} height={0.07} color={color} roughness={0.7}/>)}
+      <Cyl position={[0, 0.74, 0.04]} rotation={[Math.PI / 2, 0, Math.PI / 2]} radius={0.022} height={0.24} color="#9aa2a6" metalness={0.7}/>
+      {[-0.1, 0.1].map((z) => <Cyl key={z} position={[0, 0.74, 0.04 + z]} rotation={[0, 0, Math.PI / 2]} radius={0.08} height={0.06} color={color} roughness={0.7}/>)}
+    </Group>)}
+  </Group>
+}
+
+/** Samsak: a punching bag hung from a floor stand. */
+export function PunchingBag({ position }: { position: Vec3 }) {
+  return <Group position={position}>
+    {[[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]].map(([x, z]) => <RBox key={`${x}${z}`} position={[x * 0.9, 0.05, z * 0.9]} size={[0.5, 0.1, 0.5]} radius={0.02} color="#2f343a" metalness={0.4}/>)}
+    <RBox position={[0, 1.1, 0.45]} size={[0.12, 2.2, 0.12]} radius={0.03} color="#3a3f44" metalness={0.5}/>
+    <RBox position={[0, 2.16, 0.18]} size={[0.1, 0.1, 0.66]} radius={0.03} color="#3a3f44" metalness={0.5}/>
+    <Cyl position={[0, 2.0, -0.12]} radius={0.015} height={0.26} color="#9aa2a6" metalness={0.7}/>
+    <Cyl position={[0, 1.45, -0.12]} radius={0.22} height={0.9} color="#1f2328" roughness={0.75}/>
+    <Cyl position={[0, 1.72, -0.12]} radius={0.222} height={0.12} color="#c0392b" roughness={0.7}/>
+  </Group>
+}
+
+/** Matras yoga rolled out on the floor, with a pair of dumbbells beside it. */
+export function YogaMat({ position, color = '#6a5acd' }: { position: Vec3; color?: string }) {
+  return <Group position={position}>
+    <RBox position={[0, 0.02, 0]} size={[0.68, 0.04, 1.5]} radius={0.02} color={color} roughness={0.95}/>
+    <Cyl position={[0.52, 0.09, 0.45]} rotation={[Math.PI / 2, 0, 0]} radius={0.02} height={0.26} color="#9aa2a6" metalness={0.7}/>
+    {[-0.1, 0.1].map((z) => <Cyl key={z} position={[0.52, 0.09, 0.45 + z]} rotation={[0, 0, Math.PI / 2]} radius={0.09} height={0.06} color="#2a9d8f" roughness={0.7}/>)}
+  </Group>
+}
+
+/** Full-height gym mirror on a wall (facing +x by default). */
+export function GymMirror({ position, rotation = 0, width = 1.8 }: { position: Vec3; rotation?: number; width?: number }) {
+  return <Group position={position} rotation={rotation}>
+    <RBox position={[0, 1.15, 0]} size={[0.06, 1.9, width]} radius={0.01} color="#4a5056" metalness={0.4}/>
+    <RBox position={[0.04, 1.15, 0]} size={[0.02, 1.76, width - 0.14]} radius={0.005} color="#dfeaf0" metalness={0.9} roughness={0.05} shadow={false}/>
+  </Group>
+}
