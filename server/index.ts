@@ -10,7 +10,7 @@ import { API_VERSION } from './api-version.js'
 import { collectMemory } from './memory.js'
 import { getActivity, getCalendar, getChannels, getCommandLog, getDashboard, getKnowledge, getLogs, getOffice, getSnapshot, getTaskBoard, getTaskDetail, getUsage } from './mission-control.js'
 
-const HOST = '127.0.0.1'
+const HOST = process.env.RUANG_HOST ?? '127.0.0.1'
 // MISSION_CONTROL_PORT is the pre-rename name, still honoured.
 const PORT = Number(process.env.RUANG_PORT ?? process.env.MISSION_CONTROL_PORT) || 3001
 // The built UI sits next to the server: ../dist from server/*.ts (development, npm start)
@@ -112,6 +112,11 @@ app.get('/api/folders/:profile/file', folderRoute(async (request) => {
 }))
 
 app.use('/api', (_request, response) => { response.status(404).json({ error: 'Not found' }) })
+
+// robots.txt: the public UI is crawlable; the /api surface (data snapshots) is not.
+app.get('/robots.txt', (_request, response) => {
+  response.type('text/plain').send('User-agent: *\nAllow: /\nDisallow: /api\n')
+})
 
 if (existsSync(distDirectory)) {
   app.use(express.static(distDirectory))
